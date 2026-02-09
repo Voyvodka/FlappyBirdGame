@@ -9,7 +9,7 @@ import {
 } from "../constants";
 import { SaveManager } from "../data/SaveManager";
 import { Bird } from "../entities/Bird";
-import { ScoreService, type ScoreSession } from "../network/ScoreService";
+import { ScoreService, type ChunkSubmitPayload, type ScoreSession } from "../network/ScoreService";
 import { AudioSystem } from "../systems/AudioSystem";
 import { DifficultyDirector } from "../systems/DifficultyDirector";
 import type { DifficultyState, GamePhase, PipeVariant, SaveData, SkinDefinition } from "../types";
@@ -82,6 +82,18 @@ export class PlayScene extends Phaser.Scene {
   private coinEvents: number[] = [];
   private nearMissEvents: number[] = [];
   private remoteResultText = "";
+
+  private chunkSeq = 0;
+  private chunkTimerMs = 0;
+  private chunkPending: ChunkSubmitPayload = {
+    seq: 0,
+    durationMs: 0,
+    passEvents: [],
+    coinEvents: [],
+    nearMissEvents: [],
+    flapEvents: []
+  };
+  private chunkInFlight = false;
 
   private pipes: PipePair[] = [];
   private spawnCooldownMs = 500;
@@ -156,6 +168,17 @@ export class PlayScene extends Phaser.Scene {
     this.coinEvents = [];
     this.nearMissEvents = [];
     this.remoteResultText = "";
+    this.chunkSeq = 0;
+    this.chunkTimerMs = 900;
+    this.chunkInFlight = false;
+    this.chunkPending = {
+      seq: 0,
+      durationMs: 0,
+      passEvents: [],
+      coinEvents: [],
+      nearMissEvents: [],
+      flapEvents: []
+    };
     this.cameras.main.setAngle(0);
   }
 
@@ -182,6 +205,7 @@ export class PlayScene extends Phaser.Scene {
       this.updateWind(delta);
       this.updatePipes(time, delta);
       this.updateTrail(delta);
+      this.updateChunkStreaming(delta);
 
       if (this.checkCollisions()) {
         this.triggerCrash();
@@ -191,6 +215,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.phase === "dead") {
       this.updatePipes(time, delta * 0.5);
       this.updateTrail(delta);
+      this.updateChunkStreaming(delta);
     }
   }
 
@@ -401,6 +426,7 @@ export class PlayScene extends Phaser.Scene {
   private handleFlapInput(): void {
     if (this.phase === "ready") {
       this.startRun();
+      return;
     }
 
     if (this.phase !== "playing") {
@@ -409,7 +435,9 @@ export class PlayScene extends Phaser.Scene {
 
     this.bird.flap();
     this.audioSystem.flap();
-    this.flapEvents.push(this.getRunElapsedMs());
+    const eventMs = this.getRunElapsedMs();
+    this.flapEvents.push(eventMs);
+    this.chunkPending.flapEvents.push(eventMs);
   }
 
   private startRun(): void {
@@ -437,6 +465,17 @@ export class PlayScene extends Phaser.Scene {
     this.coinEvents = [];
     this.nearMissEvents = [];
     this.remoteResultText = "";
+    this.chunkSeq = 0;
+    this.chunkTimerMs = 900;
+    this.chunkInFlight = false;
+    this.chunkPending = {
+      seq: 0,
+      durationMs: 0,
+      passEvents: [],
+      coinEvents: [],
+      nearMissEvents: [],
+      flapEvents: [0]
+    };
 
     void this.openRemoteScoreSession();
   }
@@ -526,7 +565,9 @@ export class PlayScene extends Phaser.Scene {
         this.audioSystem.coin();
         this.pulseHud();
         this.showFloatingText(this.bird.x, this.bird.y - 52, "+1 coin", "#fef08a");
-        this.coinEvents.push(this.getRunElapsedMs());
+        const eventMs = this.getRunElapsedMs();
+        this.coinEvents.push(eventMs);
+        this.chunkPending.coinEvents.push(eventMs);
         pair.coin.destroy();
         pair.coin = undefined;
         this.refreshHudText();
@@ -564,7 +605,9 @@ export class PlayScene extends Phaser.Scene {
   private handleScorePass(pair: PipePair): void {
     this.score += 1;
     this.audioSystem.score();
-    this.passEvents.push(this.getRunElapsedMs());
+    const passMs = this.getRunElapsedMs();
+    this.passEvents.push(passMs);
+    this.chunkPending.passEvents.push(passMs);
 
     const centerDistance = Math.abs(this.bird.y - pair.currentCenter);
     const clearance = pair.currentGap * 0.5 - centerDistance;
@@ -574,7 +617,9 @@ export class PlayScene extends Phaser.Scene {
       this.coinsRun += 1;
       this.audioSystem.nearMiss();
       this.showFloatingText(pair.x, pair.currentCenter, "EDGE +1", "#fca5a5");
-      this.nearMissEvents.push(this.getRunElapsedMs());
+      const eventMs = this.getRunElapsedMs();
+      this.nearMissEvents.push(eventMs);
+      this.chunkPending.nearMissEvents.push(eventMs);
     }
 
     this.pulseHud();
@@ -854,6 +899,8 @@ export class PlayScene extends Phaser.Scene {
       return;
     }
 
+    await this.flushChunk(true);
+
     const result = await ScoreService.submitRun(this.username, this.scoreSession, {
       durationMs: this.getRunElapsedMs(),
       score: this.score,
@@ -881,6 +928,65 @@ export class PlayScene extends Phaser.Scene {
     this.unlockLabel.setAlpha(1);
   }
 
+  private updateChunkStreaming(delta: number): void {
+    if (!this.scoreSession) {
+      return;
+    }
+
+    this.chunkTimerMs -= delta;
+    if (this.chunkTimerMs > 0) {
+      return;
+    }
+
+    this.chunkTimerMs = 900;
+    void this.flushChunk(false);
+  }
+
+  private hasChunkEvents(): boolean {
+    return (
+      this.chunkPending.passEvents.length > 0 ||
+      this.chunkPending.coinEvents.length > 0 ||
+      this.chunkPending.nearMissEvents.length > 0 ||
+      this.chunkPending.flapEvents.length > 0
+    );
+  }
+
+  private async flushChunk(force: boolean): Promise<void> {
+    if (!this.scoreSession || this.chunkInFlight || !this.hasChunkEvents()) {
+      return;
+    }
+
+    const chunk: ChunkSubmitPayload = {
+      seq: this.chunkSeq,
+      durationMs: this.getRunElapsedMs(),
+      passEvents: [...this.chunkPending.passEvents],
+      coinEvents: [...this.chunkPending.coinEvents],
+      nearMissEvents: [...this.chunkPending.nearMissEvents],
+      flapEvents: [...this.chunkPending.flapEvents]
+    };
+
+    this.chunkInFlight = true;
+    const sent = await ScoreService.submitChunk(this.username, this.scoreSession, chunk);
+    this.chunkInFlight = false;
+
+    if (sent) {
+      this.chunkSeq += 1;
+      this.chunkPending = {
+        seq: this.chunkSeq,
+        durationMs: chunk.durationMs,
+        passEvents: [],
+        coinEvents: [],
+        nearMissEvents: [],
+        flapEvents: []
+      };
+      return;
+    }
+
+    if (force) {
+      return;
+    }
+  }
+
   private mapGlobalRejectMessage(reason?: string): string {
     switch (reason) {
       case "network_error":
@@ -888,6 +994,15 @@ export class PlayScene extends Phaser.Scene {
       case "invalid_duration":
       case "first_pass_too_early":
         return "Run too short for global leaderboard";
+      case "flap_interval_violation":
+      case "pass_interval_violation":
+        return "Input timing looked invalid";
+      case "chunk_count_mismatch":
+      case "chunk_tail_mismatch":
+      case "chunk_duration_mismatch":
+        return "Run data stream mismatch";
+      case "chunk_interval_violation":
+        return "Live event timing mismatch";
       case "rate_limited":
         return "Too many attempts, try again soon";
       case "invalid_username":

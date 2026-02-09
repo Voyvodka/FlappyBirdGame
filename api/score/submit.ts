@@ -1,8 +1,10 @@
 import {
+  clearRunState,
   extractClientIp,
   rateLimit,
   sanitizeUsernameInput,
   upsertLeaderboard,
+  verifyChunkConsistency,
   verifyAndConsumeSession,
   verifyTelemetry
 } from "../_lib/scoreSecurity.js";
@@ -59,11 +61,20 @@ export default async function handler(req: any, res: any): Promise<void> {
 
     const telemetryCheck = verifyTelemetry(json.telemetry);
     if (!telemetryCheck.ok) {
+      await clearRunState(sessionCheck.session.sessionId);
       res.status(400).json({ accepted: false, reason: telemetryCheck.reason });
       return;
     }
 
+    const chunkCheck = await verifyChunkConsistency(sessionCheck.session.sessionId, telemetryCheck.clean);
+    if (!chunkCheck.ok) {
+      await clearRunState(sessionCheck.session.sessionId);
+      res.status(400).json({ accepted: false, reason: chunkCheck.reason });
+      return;
+    }
+
     const result = await upsertLeaderboard(sessionCheck.username, telemetryCheck.clean.score);
+    await clearRunState(sessionCheck.session.sessionId);
 
     res.status(200).json({
       accepted: true,

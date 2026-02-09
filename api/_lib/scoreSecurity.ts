@@ -6,12 +6,13 @@ const SCOREBOARD_KEY = "scoreboard:global:v2:list";
 const SESSION_PREFIX = "score:session:v2:";
 const USED_PREFIX = "score:used:v2:";
 const RATE_PREFIX = "score:rl:v2:";
+const RUN_PREFIX = "score:run:v2:";
 
 const MIN_SESSION_MS = 8_000;
 const MAX_SESSION_MS = 6 * 60_000;
 const MAX_ENTRIES = 2000;
 const MIN_PASS_INTERVAL_MS = 520;
-const MIN_FLAP_INTERVAL_MS = 14;
+const MIN_FLAP_INTERVAL_MS = 8;
 const MAX_FPS_FLAP_RATE = 22;
 
 const KV_REST_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
@@ -144,6 +145,32 @@ interface LeaderboardRecord {
   score: number;
 }
 
+interface RunState {
+  sessionId: string;
+  username: string;
+  lastSeq: number;
+  chunkCount: number;
+  lastDurationMs: number;
+  lastPassMs: number;
+  lastCoinMs: number;
+  lastNearMs: number;
+  lastFlapMs: number;
+  passCount: number;
+  coinCount: number;
+  nearCount: number;
+  flapCount: number;
+  expiresAt: number;
+}
+
+export interface ChunkTelemetry {
+  seq: number;
+  durationMs: number;
+  passEvents: number[];
+  coinEvents: number[];
+  nearMissEvents: number[];
+  flapEvents: number[];
+}
+
 export const sanitizeUsernameInput = (input: unknown): string | null => {
   if (typeof input !== "string") {
     return null;
@@ -184,6 +211,7 @@ const signSession = (session: Omit<ScoreSessionPayload, "signature">, username: 
 
 const sessionKey = (sessionId: string): string => `${SESSION_PREFIX}${sessionId}`;
 const usedKey = (sessionId: string): string => `${USED_PREFIX}${sessionId}`;
+const runKey = (sessionId: string): string => `${RUN_PREFIX}${sessionId}`;
 
 const parseRecord = (raw: string): LeaderboardRecord | null => {
   try {
@@ -251,6 +279,23 @@ export const createSession = async (usernameRaw: unknown): Promise<{ session: Sc
   };
 
   await db.set(sessionKey(session.sessionId), stored, 5 * 60);
+  const runState: RunState = {
+    sessionId: session.sessionId,
+    username,
+    lastSeq: -1,
+    chunkCount: 0,
+    lastDurationMs: 0,
+    lastPassMs: -1,
+    lastCoinMs: -1,
+    lastNearMs: -1,
+    lastFlapMs: -1,
+    passCount: 0,
+    coinCount: 0,
+    nearCount: 0,
+    flapCount: 0,
+    expiresAt
+  };
+  await db.set(runKey(session.sessionId), runState, 15 * 60);
 
   return {
     username,
@@ -476,6 +521,188 @@ export const verifyAndConsumeSession = async (
   await db.del(sessionKey(sessionId));
 
   return { ok: true, username, session: stored };
+};
+
+export const verifyActiveSession = async (
+  usernameRaw: unknown,
+  payloadRaw: unknown
+): Promise<{ ok: true; username: string; session: StoredSession } | { ok: false; reason: string }> => {
+  const username = sanitizeUsernameInput(usernameRaw);
+  if (!username) {
+    return { ok: false, reason: "invalid_username" };
+  }
+
+  if (!payloadRaw || typeof payloadRaw !== "object") {
+    return { ok: false, reason: "invalid_session" };
+  }
+
+  const payload = payloadRaw as Record<string, unknown>;
+  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : "";
+  const seed = Number(payload.seed);
+  const issuedAt = Number(payload.issuedAt);
+  const expiresAt = Number(payload.expiresAt);
+  const nonce = typeof payload.nonce === "string" ? payload.nonce : "";
+  const signature = typeof payload.signature === "string" ? payload.signature : "";
+
+  if (!sessionId || !Number.isInteger(seed) || !Number.isInteger(issuedAt) || !Number.isInteger(expiresAt) || !nonce || !signature) {
+    return { ok: false, reason: "invalid_session" };
+  }
+  if (expiresAt <= Date.now()) {
+    return { ok: false, reason: "session_expired" };
+  }
+
+  const expected = signSession({ sessionId, seed, issuedAt, expiresAt, nonce }, username);
+  if (!verifySignatureSafe(signature, expected)) {
+    return { ok: false, reason: "invalid_signature" };
+  }
+
+  const stored = await db.get<StoredSession>(sessionKey(sessionId));
+  if (!stored) {
+    return { ok: false, reason: "session_missing" };
+  }
+  if (stored.username !== username || stored.nonce !== nonce || stored.seed !== seed) {
+    return { ok: false, reason: "session_binding_failed" };
+  }
+
+  const used = await db.get<number>(usedKey(sessionId));
+  if (used) {
+    return { ok: false, reason: "session_reused" };
+  }
+
+  return { ok: true, username, session: stored };
+};
+
+const extractChunkArray = (value: unknown, durationMs: number): number[] | null => {
+  if (!isMonotonicMs(value, durationMs)) {
+    return null;
+  }
+  return value;
+};
+
+const validateBoundaryInterval = (events: number[], lastEvent: number, minInterval: number): boolean => {
+  if (events.length === 0 || lastEvent < 0) {
+    return true;
+  }
+  return events[0] - lastEvent >= minInterval;
+};
+
+const validateChunkTail = (events: number[], lastEvent: number): boolean => {
+  if (events.length === 0) {
+    return true;
+  }
+  return events[0] > lastEvent;
+};
+
+export const verifyAndStoreChunk = async (
+  usernameRaw: unknown,
+  payloadRaw: unknown,
+  chunkRaw: unknown
+): Promise<{ ok: true } | { ok: false; reason: string }> => {
+  const session = await verifyActiveSession(usernameRaw, payloadRaw);
+  if (!session.ok) {
+    return session;
+  }
+
+  if (!chunkRaw || typeof chunkRaw !== "object") {
+    return { ok: false, reason: "invalid_chunk" };
+  }
+
+  const raw = chunkRaw as Record<string, unknown>;
+  const seq = Number(raw.seq);
+  const durationMs = Number(raw.durationMs);
+
+  if (!Number.isInteger(seq) || seq < 0) {
+    return { ok: false, reason: "invalid_seq" };
+  }
+  if (!Number.isInteger(durationMs) || durationMs < 0 || durationMs > MAX_SESSION_MS) {
+    return { ok: false, reason: "invalid_duration" };
+  }
+
+  const passEvents = extractChunkArray(raw.passEvents, durationMs);
+  const coinEvents = extractChunkArray(raw.coinEvents, durationMs);
+  const nearMissEvents = extractChunkArray(raw.nearMissEvents, durationMs);
+  const flapEvents = extractChunkArray(raw.flapEvents, durationMs);
+
+  if (!passEvents || !coinEvents || !nearMissEvents || !flapEvents) {
+    return { ok: false, reason: "invalid_chunk_events" };
+  }
+
+  const state = await db.get<RunState>(runKey(session.session.sessionId));
+  if (!state) {
+    return { ok: false, reason: "run_state_missing" };
+  }
+
+  if (state.username !== session.username) {
+    return { ok: false, reason: "run_state_binding_failed" };
+  }
+  if (seq !== state.lastSeq + 1) {
+    return { ok: false, reason: "invalid_seq" };
+  }
+  if (durationMs < state.lastDurationMs) {
+    return { ok: false, reason: "duration_backtrack" };
+  }
+
+  if (!validateChunkTail(passEvents, state.lastPassMs) || !validateChunkTail(coinEvents, state.lastCoinMs) || !validateChunkTail(nearMissEvents, state.lastNearMs) || !validateChunkTail(flapEvents, state.lastFlapMs)) {
+    return { ok: false, reason: "event_backtrack" };
+  }
+
+  if (!validateBoundaryInterval(passEvents, state.lastPassMs, MIN_PASS_INTERVAL_MS) || !validateBoundaryInterval(flapEvents, state.lastFlapMs, MIN_FLAP_INTERVAL_MS)) {
+    return { ok: false, reason: "chunk_interval_violation" };
+  }
+
+  if (!validateMinimumIntervals(passEvents, MIN_PASS_INTERVAL_MS) || !validateMinimumIntervals(flapEvents, MIN_FLAP_INTERVAL_MS)) {
+    return { ok: false, reason: "chunk_interval_violation" };
+  }
+
+  const next: RunState = {
+    ...state,
+    lastSeq: seq,
+    chunkCount: state.chunkCount + 1,
+    lastDurationMs: durationMs,
+    lastPassMs: passEvents.length > 0 ? passEvents[passEvents.length - 1] : state.lastPassMs,
+    lastCoinMs: coinEvents.length > 0 ? coinEvents[coinEvents.length - 1] : state.lastCoinMs,
+    lastNearMs: nearMissEvents.length > 0 ? nearMissEvents[nearMissEvents.length - 1] : state.lastNearMs,
+    lastFlapMs: flapEvents.length > 0 ? flapEvents[flapEvents.length - 1] : state.lastFlapMs,
+    passCount: state.passCount + passEvents.length,
+    coinCount: state.coinCount + coinEvents.length,
+    nearCount: state.nearCount + nearMissEvents.length,
+    flapCount: state.flapCount + flapEvents.length
+  };
+
+  await db.set(runKey(session.session.sessionId), next, 15 * 60);
+  return { ok: true };
+};
+
+export const verifyChunkConsistency = async (
+  sessionId: string,
+  telemetry: TelemetryPayload
+): Promise<{ ok: true } | { ok: false; reason: string }> => {
+  const state = await db.get<RunState>(runKey(sessionId));
+  if (!state || state.chunkCount === 0) {
+    return { ok: true };
+  }
+
+  if (telemetry.durationMs < state.lastDurationMs) {
+    return { ok: false, reason: "chunk_duration_mismatch" };
+  }
+  if (telemetry.passEvents.length < state.passCount || telemetry.coinEvents.length < state.coinCount || telemetry.nearMissEvents.length < state.nearCount || telemetry.flapEvents.length < state.flapCount) {
+    return { ok: false, reason: "chunk_count_mismatch" };
+  }
+
+  const passTail = telemetry.passEvents.length > 0 ? telemetry.passEvents[telemetry.passEvents.length - 1] : -1;
+  const coinTail = telemetry.coinEvents.length > 0 ? telemetry.coinEvents[telemetry.coinEvents.length - 1] : -1;
+  const nearTail = telemetry.nearMissEvents.length > 0 ? telemetry.nearMissEvents[telemetry.nearMissEvents.length - 1] : -1;
+  const flapTail = telemetry.flapEvents.length > 0 ? telemetry.flapEvents[telemetry.flapEvents.length - 1] : -1;
+
+  if (passTail < state.lastPassMs || coinTail < state.lastCoinMs || nearTail < state.lastNearMs || flapTail < state.lastFlapMs) {
+    return { ok: false, reason: "chunk_tail_mismatch" };
+  }
+
+  return { ok: true };
+};
+
+export const clearRunState = async (sessionId: string): Promise<void> => {
+  await db.del(runKey(sessionId));
 };
 
 export const upsertLeaderboard = async (username: string, score: number): Promise<{ rank: number; bestScore: number }> => {

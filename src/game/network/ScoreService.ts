@@ -29,6 +29,15 @@ export interface SubmitRunResult {
   bestScore?: number;
 }
 
+export interface ChunkSubmitPayload {
+  seq: number;
+  durationMs: number;
+  passEvents: number[];
+  coinEvents: number[];
+  nearMissEvents: number[];
+  flapEvents: number[];
+}
+
 export interface GlobalScoreEntry {
   rank: number;
   score: number;
@@ -113,6 +122,19 @@ export class ScoreService {
         accepted: false,
         reason
       };
+    }
+  }
+
+  public static async submitChunk(username: string, session: ScoreSession, chunk: ChunkSubmitPayload): Promise<boolean> {
+    try {
+      await postJson<{ accepted: boolean }>("/api/score/chunk", {
+        username: sanitizeUsername(username),
+        session,
+        chunk
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 
