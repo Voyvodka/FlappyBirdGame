@@ -51,7 +51,7 @@ const registerServiceWorker = (): void => {
   }
 
   void window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js");
+    void navigator.serviceWorker.register(`/sw.js?v=${__BUILD_ID__}`);
   });
 };
 
