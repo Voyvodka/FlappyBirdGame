@@ -50,19 +50,32 @@ const getStoredUsername = (): string => {
 };
 
 const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    throw new Error("network_error");
   }
 
-  return (await response.json()) as T;
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok) {
+    const parsed = body as { reason?: string; error?: string } | null;
+    throw new Error(parsed?.reason ?? parsed?.error ?? `http_${response.status}`);
+  }
+
+  return body as T;
 };
 
 export class ScoreService {
@@ -94,10 +107,11 @@ export class ScoreService {
         session,
         telemetry
       });
-    } catch {
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "network_error";
       return {
         accepted: false,
-        reason: "network_error"
+        reason
       };
     }
   }

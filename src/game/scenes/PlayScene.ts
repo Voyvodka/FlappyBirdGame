@@ -873,11 +873,27 @@ export class PlayScene extends Phaser.Scene {
       const bestText = typeof result.bestScore === "number" ? `best ${result.bestScore}` : "";
       this.remoteResultText = `${rankText}${bestText ? ` (${bestText})` : ""}`;
     } else {
-      this.remoteResultText = result.reason === "network_error" ? "Global score offline" : "Global score rejected";
+      this.remoteResultText = this.mapGlobalRejectMessage(result.reason);
     }
 
     const current = this.unlockLabel.alpha > 0 ? this.unlockLabel.text : "";
     this.unlockLabel.setText([current, this.remoteResultText].filter(Boolean).join("\n"));
     this.unlockLabel.setAlpha(1);
+  }
+
+  private mapGlobalRejectMessage(reason?: string): string {
+    switch (reason) {
+      case "network_error":
+        return "Global score offline";
+      case "invalid_duration":
+      case "first_pass_too_early":
+        return "Run too short for global leaderboard";
+      case "rate_limited":
+        return "Too many attempts, try again soon";
+      case "invalid_username":
+        return "Invalid username";
+      default:
+        return "Run rejected by anti-cheat";
+    }
   }
 }

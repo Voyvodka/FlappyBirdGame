@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { kv } from "@vercel/kv";
 import { createClient } from "redis";
 
@@ -7,9 +7,12 @@ const SESSION_PREFIX = "score:session:v2:";
 const USED_PREFIX = "score:used:v2:";
 const RATE_PREFIX = "score:rl:v2:";
 
-const MIN_SESSION_MS = 15_000;
+const MIN_SESSION_MS = 8_000;
 const MAX_SESSION_MS = 6 * 60_000;
 const MAX_ENTRIES = 2000;
+const MIN_PASS_INTERVAL_MS = 520;
+const MIN_FLAP_INTERVAL_MS = 14;
+const MAX_FPS_FLAP_RATE = 22;
 
 const KV_REST_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
 const KV_REST_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -141,7 +144,7 @@ interface LeaderboardRecord {
   score: number;
 }
 
-const sanitizeUsername = (input: unknown): string | null => {
+export const sanitizeUsernameInput = (input: unknown): string | null => {
   if (typeof input !== "string") {
     return null;
   }
@@ -150,6 +153,20 @@ const sanitizeUsername = (input: unknown): string | null => {
     return null;
   }
   return clean;
+};
+
+const verifySignatureSafe = (signature: string, expected: string): boolean => {
+  if (!/^[a-f0-9]{64}$/.test(signature) || !/^[a-f0-9]{64}$/.test(expected)) {
+    return false;
+  }
+
+  const signatureBuffer = Buffer.from(signature, "hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(signatureBuffer, expectedBuffer);
 };
 
 const getSecret = (): string => {
@@ -171,7 +188,7 @@ const usedKey = (sessionId: string): string => `${USED_PREFIX}${sessionId}`;
 const parseRecord = (raw: string): LeaderboardRecord | null => {
   try {
     const parsed = JSON.parse(raw) as Partial<LeaderboardRecord>;
-    const username = sanitizeUsername(parsed.username);
+    const username = sanitizeUsernameInput(parsed.username);
     const score = Number(parsed.score);
     if (!username || !Number.isInteger(score) || score < 0 || score > 10_000) {
       return null;
@@ -208,7 +225,7 @@ export const rateLimit = async (bucket: string, key: string, maxPerMinute: numbe
 };
 
 export const createSession = async (usernameRaw: unknown): Promise<{ session: ScoreSessionPayload; username: string }> => {
-  const username = sanitizeUsername(usernameRaw);
+  const username = sanitizeUsernameInput(usernameRaw);
   if (!username) {
     throw new Error("invalid_username");
   }
@@ -271,6 +288,29 @@ const isMonotonicMs = (events: unknown, durationMs: number): events is number[] 
   return true;
 };
 
+const validateMinimumIntervals = (events: number[], minimumIntervalMs: number): boolean => {
+  if (events.length <= 1) {
+    return true;
+  }
+
+  for (let i = 1; i < events.length; i += 1) {
+    if (events[i] - events[i - 1] < minimumIntervalMs) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const containsNearbyPassEvent = (passEvents: number[], eventMs: number): boolean => {
+  for (const passEvent of passEvents) {
+    if (Math.abs(passEvent - eventMs) <= 150) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const verifyTelemetry = (telemetry: unknown): { ok: true; clean: TelemetryPayload } | { ok: false; reason: string } => {
   if (!telemetry || typeof telemetry !== "object") {
     return { ok: false, reason: "invalid_payload" };
@@ -324,6 +364,13 @@ export const verifyTelemetry = (telemetry: unknown): { ok: true; clean: Telemetr
     return { ok: false, reason: "near_miss_mismatch" };
   }
 
+  if (!validateMinimumIntervals(passEvents, MIN_PASS_INTERVAL_MS)) {
+    return { ok: false, reason: "pass_interval_violation" };
+  }
+  if (!validateMinimumIntervals(flapEvents, MIN_FLAP_INTERVAL_MS)) {
+    return { ok: false, reason: "flap_interval_violation" };
+  }
+
   const passCount = passEvents.length;
   const directCoinCount = coinEvents.length;
   const expectedScore = passCount + nearMisses;
@@ -334,6 +381,27 @@ export const verifyTelemetry = (telemetry: unknown): { ok: true; clean: Telemetr
   }
   if (coins !== expectedCoins) {
     return { ok: false, reason: "coin_mismatch" };
+  }
+  if (nearMisses > passCount) {
+    return { ok: false, reason: "near_miss_overflow" };
+  }
+  if (directCoinCount > passCount + 1) {
+    return { ok: false, reason: "coin_overflow" };
+  }
+
+  for (const nearMissEvent of nearMissEvents) {
+    if (!containsNearbyPassEvent(passEvents, nearMissEvent)) {
+      return { ok: false, reason: "near_miss_alignment" };
+    }
+  }
+
+  if (passCount > 0 && passEvents[0] < 900) {
+    return { ok: false, reason: "first_pass_too_early" };
+  }
+
+  const flapRateCap = Math.floor((durationMs / 1000) * MAX_FPS_FLAP_RATE) + 6;
+  if (flaps > flapRateCap) {
+    return { ok: false, reason: "flap_rate_violation" };
   }
 
   const conservativeMaxPasses = Math.floor(Math.max(0, durationMs - 2_200) / 820) + 2;
@@ -361,7 +429,7 @@ export const verifyAndConsumeSession = async (
   usernameRaw: unknown,
   payloadRaw: unknown
 ): Promise<{ ok: true; username: string; session: StoredSession } | { ok: false; reason: string }> => {
-  const username = sanitizeUsername(usernameRaw);
+  const username = sanitizeUsernameInput(usernameRaw);
   if (!username) {
     return { ok: false, reason: "invalid_username" };
   }
@@ -387,7 +455,7 @@ export const verifyAndConsumeSession = async (
   }
 
   const expected = signSession({ sessionId, seed, issuedAt, expiresAt, nonce }, username);
-  if (signature !== expected) {
+  if (!verifySignatureSafe(signature, expected)) {
     return { ok: false, reason: "invalid_signature" };
   }
 

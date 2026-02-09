@@ -1,7 +1,8 @@
 import {
   createSession,
   extractClientIp,
-  rateLimit
+  rateLimit,
+  sanitizeUsernameInput
 } from "../_lib/scoreSecurity.js";
 
 const readJson = (body: unknown): Record<string, unknown> => {
@@ -30,6 +31,11 @@ export default async function handler(req: any, res: any): Promise<void> {
   try {
     const json = readJson(req.body);
     const ip = extractClientIp(req);
+    const username = sanitizeUsernameInput(json.username);
+    if (!username) {
+      res.status(400).json({ error: "invalid_username" });
+      return;
+    }
 
     const ipAllowed = await rateLimit("session_ip", ip, 40);
     if (!ipAllowed) {
@@ -37,12 +43,13 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const { session, username } = await createSession(json.username);
     const usernameAllowed = await rateLimit("session_username", username, 30);
     if (!usernameAllowed) {
       res.status(429).json({ error: "rate_limited" });
       return;
     }
+
+    const { session } = await createSession(username);
 
     res.status(200).json({ session });
   } catch (error) {

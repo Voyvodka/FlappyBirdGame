@@ -2,6 +2,46 @@
   color-scheme: only light;
   font-family: "Outfit", "Trebuchet MS", sans-serif;
   background: radial-gradient(circle at 20% 15%, #f8efd9 0%, #f3d6a9 30%, #d4975e 68%, #6f4030 100%);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+@keyframes driftSky {
+  0% {
+    background-position:
+      0 0,
+      0 0,
+      0 0,
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      0 0,
+      280px 0,
+      -220px 40px,
+      180px 0,
+      0 0;
+  }
+}
+
+@keyframes driftGround {
+  0% {
+    background-position:
+      0 0,
+      0 0,
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      -420px 0,
+      280px 0,
+      -120px 0,
+      0 0;
+  }
 }
 
 * {
@@ -12,7 +52,7 @@ html,
 body,
 #app {
   width: 100%;
-  height: 100%;
+  height: 100dvh;
   margin: 0;
   overflow: hidden;
 }
@@ -20,40 +60,94 @@ body,
 body {
   position: fixed;
   inset: 0;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #app {
   position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
 }
 
 #app::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 0;
   background:
     radial-gradient(circle at 80% 20%, rgb(255 255 255 / 0.3) 0, rgb(255 255 255 / 0) 40%),
     linear-gradient(160deg, rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.26));
   pointer-events: none;
 }
 
+#app::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 28%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgb(0 0 0 / 0), rgb(26 14 10 / 0.28)),
+    linear-gradient(0deg, rgb(86 48 34 / 0.65), rgb(128 80 56 / 0));
+}
+
 canvas {
   display: block;
-  margin: 0 auto;
-  width: min(100vw, 56.25vh);
+  margin: 0;
+  width: min(calc(100vw - var(--safe-left) - var(--safe-right)), calc((100dvh - var(--safe-top) - var(--safe-bottom)) * 0.562));
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  position: relative;
+  z-index: 2;
   border-radius: 22px;
   box-shadow:
     0 24px 48px rgb(35 17 9 / 0.3),
     0 8px 22px rgb(35 17 9 / 0.4);
+  touch-action: manipulation;
 }
 
 @media (max-width: 700px) {
+  :root {
+    background: linear-gradient(180deg, #66c7f3 0%, #7fcce8 45%, #588f8b 70%, #3f2e27 100%);
+  }
+
+  #app::before {
+    background:
+      linear-gradient(180deg, #63c8f8 0%, #79c5ea 48%, #88c5d2 64%, #7caea1 74%, #5f6559 100%),
+      radial-gradient(ellipse at 15% 22%, rgb(255 255 255 / 0.24) 0 18%, rgb(255 255 255 / 0) 19%),
+      radial-gradient(ellipse at 82% 26%, rgb(255 255 255 / 0.2) 0 16%, rgb(255 255 255 / 0) 17%),
+      radial-gradient(ellipse at 52% 33%, rgb(255 255 255 / 0.18) 0 20%, rgb(255 255 255 / 0) 21%),
+      linear-gradient(180deg, rgb(5 13 29 / 0.08), rgb(5 13 29 / 0.22));
+    animation: driftSky 28s linear infinite;
+  }
+
+  #app::after {
+    height: 34%;
+    background:
+      repeating-linear-gradient(
+        90deg,
+        rgb(16 38 55 / 0.82) 0 22px,
+        rgb(11 26 38 / 0.82) 22px 38px,
+        rgb(22 47 66 / 0.82) 38px 52px,
+        rgb(13 30 45 / 0.82) 52px 70px
+      ),
+      linear-gradient(180deg, rgb(31 60 70 / 0.26), rgb(11 24 34 / 0.7)),
+      radial-gradient(120% 50% at 50% 115%, rgb(109 168 120 / 0.5), rgb(109 168 120 / 0));
+    animation: driftGround 22s linear infinite;
+  }
+
   canvas {
     border-radius: 0;
-    box-shadow: none;
-    width: 100vw;
-    height: 100vh;
+    box-shadow: 0 8px 22px rgb(18 17 15 / 0.24);
+    width: min(100vw, calc(100dvh * 0.562));
+    height: auto;
+    max-width: 100vw;
+    max-height: 100dvh;
     object-fit: contain;
   }
 }

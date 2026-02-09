@@ -1,6 +1,7 @@
 import {
   extractClientIp,
   rateLimit,
+  sanitizeUsernameInput,
   upsertLeaderboard,
   verifyAndConsumeSession,
   verifyTelemetry
@@ -32,6 +33,11 @@ export default async function handler(req: any, res: any): Promise<void> {
   try {
     const json = readJson(req.body);
     const ip = extractClientIp(req);
+    const username = sanitizeUsernameInput(json.username);
+    if (!username) {
+      res.status(400).json({ accepted: false, reason: "invalid_username" });
+      return;
+    }
 
     const ipAllowed = await rateLimit("submit_ip", ip, 50);
     if (!ipAllowed) {
@@ -39,7 +45,13 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const sessionCheck = await verifyAndConsumeSession(json.username, json.session);
+    const usernameAllowed = await rateLimit("submit_username", username, 35);
+    if (!usernameAllowed) {
+      res.status(429).json({ accepted: false, reason: "rate_limited" });
+      return;
+    }
+
+    const sessionCheck = await verifyAndConsumeSession(username, json.session);
     if (!sessionCheck.ok) {
       res.status(400).json({ accepted: false, reason: sessionCheck.reason });
       return;
