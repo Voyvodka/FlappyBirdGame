@@ -313,14 +313,16 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private createResultOverlay(): void {
+    const panelCenterY = GAME_HEIGHT / 2 - 18;
+
     const dim = this.add
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x020617, 0.66)
       .setInteractive();
 
-    const panel = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "ui-panel").setScale(0.86, 1.24);
+    const panel = this.add.image(GAME_WIDTH / 2, panelCenterY, "ui-panel").setScale(0.88, 1.28);
 
     this.resultTitle = this.add
-      .text(GAME_WIDTH / 2, 280, "RUN COMPLETE", {
+      .text(GAME_WIDTH / 2, 244, "RUN COMPLETE", {
         fontFamily: "Changa",
         fontSize: "42px",
         color: "#8b4513",
@@ -330,7 +332,7 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.resultStats = this.add
-      .text(GAME_WIDTH / 2, 372, "", {
+      .text(GAME_WIDTH / 2, 362, "", {
         fontFamily: "Outfit",
         fontSize: "28px",
         color: "#1f2937",
@@ -340,7 +342,7 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.unlockLabel = this.add
-      .text(GAME_WIDTH / 2, 498, "", {
+      .text(GAME_WIDTH / 2, 466, "", {
         fontFamily: "Outfit",
         fontSize: "20px",
         color: "#9f1239",
@@ -349,11 +351,11 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0);
 
-    const replayButton = this.createOverlayButton(GAME_WIDTH / 2, 558, "PLAY AGAIN", () => {
+    const replayButton = this.createOverlayButton(GAME_WIDTH / 2, 486, "PLAY AGAIN", () => {
       this.scene.restart({ skinId: this.selectedSkin.id });
     });
 
-    const menuButton = this.createOverlayButton(GAME_WIDTH / 2, 638, "MAIN MENU", () => {
+    const menuButton = this.createOverlayButton(GAME_WIDTH / 2, 566, "MAIN MENU", () => {
       this.scene.start("MenuScene");
     });
 
@@ -369,11 +371,11 @@ export class PlayScene extends Phaser.Scene {
     label: string,
     callback: () => void
   ): Phaser.GameObjects.Container {
-    const button = this.add.image(x, y, "ui-button").setScale(0.86).setInteractive({ useHandCursor: true });
+    const button = this.add.image(x, y, "ui-button").setScale(1.16, 0.84).setInteractive({ useHandCursor: true });
     const text = this.add
-      .text(x, y, label, {
+      .text(x, y + 2, label, {
         fontFamily: "Changa",
-        fontSize: "28px",
+        fontSize: "27px",
         color: "#fff7e6",
         stroke: "#6c2d11",
         strokeThickness: 5
@@ -381,12 +383,12 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     button.on("pointerover", () => {
-      button.setScale(0.9);
-      text.setScale(1.04);
+      button.setScale(1.2, 0.88);
+      text.setScale(1.03);
     });
 
     button.on("pointerout", () => {
-      button.setScale(0.86);
+      button.setScale(1.16, 0.84);
       text.setScale(1);
     });
 
