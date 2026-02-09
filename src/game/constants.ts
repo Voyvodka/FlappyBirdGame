@@ -41,23 +41,23 @@ export const SKINS: SkinDefinition[] = [
 
 export const ACHIEVEMENTS: Record<string, { label: string; check: (score: number, coins: number, nearMiss: number) => boolean }> = {
   first_flight: {
-    label: "Ilk ucus",
+    label: "First flight",
     check: (score) => score >= 1
   },
   score_25: {
-    label: "Skor 25",
+    label: "Score 25",
     check: (score) => score >= 25
   },
   score_60: {
-    label: "Skor 60",
+    label: "Score 60",
     check: (score) => score >= 60
   },
   coin_hunter: {
-    label: "Para avcisi",
+    label: "Coin hunter",
     check: (_score, coins) => coins >= 12
   },
   edge_master: {
-    label: "Kenar ustasi",
+    label: "Edge master",
     check: (_score, _coins, nearMiss) => nearMiss >= 5
   }
 };

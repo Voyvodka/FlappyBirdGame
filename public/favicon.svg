@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Ultra Flappy icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#67d0ff" />
+      <stop offset="100%" stop-color="#5a9fff" />
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffe7ad" />
+      <stop offset="100%" stop-color="#f2a235" />
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="12" fill="url(#bg)" />
+  <circle cx="30" cy="33" r="14" fill="url(#body)" />
+  <ellipse cx="25" cy="38" rx="8" ry="5.5" fill="#ea7e2a" />
+  <path d="M38 34l11-4-8.5 9.5z" fill="#ff7a15" />
+  <circle cx="33.2" cy="29.6" r="3" fill="#fff" />
+  <circle cx="34" cy="30" r="1.5" fill="#0f172a" />
+</svg>

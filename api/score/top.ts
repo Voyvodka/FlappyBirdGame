@@ -1,4 +1,4 @@
-import { getTopScores } from "../_lib/scoreSecurity";
+import { getTopScores } from "../_lib/scoreSecurity.js";
 
 export default async function handler(req: any, res: any): Promise<void> {
   if (req.method !== "GET") {

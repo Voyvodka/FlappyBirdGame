@@ -4,7 +4,7 @@ import {
   upsertLeaderboard,
   verifyAndConsumeSession,
   verifyTelemetry
-} from "../_lib/scoreSecurity";
+} from "../_lib/scoreSecurity.js";
 
 const readJson = (body: unknown): Record<string, unknown> => {
   if (!body) {
@@ -39,7 +39,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const sessionCheck = await verifyAndConsumeSession(json.deviceId, json.session);
+    const sessionCheck = await verifyAndConsumeSession(json.username, json.session);
     if (!sessionCheck.ok) {
       res.status(400).json({ accepted: false, reason: sessionCheck.reason });
       return;
@@ -51,7 +51,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const result = await upsertLeaderboard(sessionCheck.deviceId, telemetryCheck.clean.score);
+    const result = await upsertLeaderboard(sessionCheck.username, telemetryCheck.clean.score);
 
     res.status(200).json({
       accepted: true,

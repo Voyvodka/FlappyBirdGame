@@ -1,4 +1,5 @@
-const DEVICE_ID_KEY = "ultra_flappy_device_id_v1";
+const USERNAME_KEY = "ultra_flappy_username_v1";
+const DEFAULT_USERNAME = "pilot";
 
 export interface ScoreSession {
   sessionId: string;
@@ -31,24 +32,21 @@ export interface SubmitRunResult {
 export interface GlobalScoreEntry {
   rank: number;
   score: number;
-  player: string;
+  username: string;
 }
 
-const createDeviceId = (): string => {
-  const randomPart = Math.random().toString(36).slice(2, 10);
-  const timePart = Date.now().toString(36);
-  return `pilot-${timePart}-${randomPart}`;
+const sanitizeUsername = (raw: string): string => {
+  const clean = raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  const bounded = clean.slice(0, 16);
+  return bounded.length >= 3 ? bounded : DEFAULT_USERNAME;
 };
 
-const getDeviceId = (): string => {
-  const existing = localStorage.getItem(DEVICE_ID_KEY);
-  if (existing) {
-    return existing;
+const getStoredUsername = (): string => {
+  const existing = localStorage.getItem(USERNAME_KEY);
+  if (existing && existing.trim().length > 0) {
+    return sanitizeUsername(existing);
   }
-
-  const generated = createDeviceId();
-  localStorage.setItem(DEVICE_ID_KEY, generated);
-  return generated;
+  return DEFAULT_USERNAME;
 };
 
 const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
@@ -68,10 +66,20 @@ const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
 };
 
 export class ScoreService {
-  public static async createSession(): Promise<ScoreSession | null> {
+  public static getUsername(): string {
+    return getStoredUsername();
+  }
+
+  public static setUsername(raw: string): string {
+    const username = sanitizeUsername(raw);
+    localStorage.setItem(USERNAME_KEY, username);
+    return username;
+  }
+
+  public static async createSession(username: string): Promise<ScoreSession | null> {
     try {
       const body = await postJson<{ session: ScoreSession }>("/api/score/session", {
-        deviceId: getDeviceId()
+        username: sanitizeUsername(username)
       });
       return body.session;
     } catch {
@@ -79,10 +87,10 @@ export class ScoreService {
     }
   }
 
-  public static async submitRun(session: ScoreSession, telemetry: RunTelemetry): Promise<SubmitRunResult> {
+  public static async submitRun(username: string, session: ScoreSession, telemetry: RunTelemetry): Promise<SubmitRunResult> {
     try {
       return await postJson<SubmitRunResult>("/api/score/submit", {
-        deviceId: getDeviceId(),
+        username: sanitizeUsername(username),
         session,
         telemetry
       });

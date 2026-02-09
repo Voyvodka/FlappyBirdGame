@@ -3,10 +3,15 @@ dist/
 .vercel/
 
 .env
+.env.*
+.env.vercel
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
+!.env.example
+
 .DS_Store
 *.log
+.vercel

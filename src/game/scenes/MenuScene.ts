@@ -21,6 +21,7 @@ export class MenuScene extends Phaser.Scene {
   private coinLabel!: Phaser.GameObjects.Text;
   private toastLabel!: Phaser.GameObjects.Text;
   private globalLeaderboardLabel!: Phaser.GameObjects.Text;
+  private usernameValue!: Phaser.GameObjects.Text;
 
   public constructor() {
     super("MenuScene");
@@ -36,6 +37,7 @@ export class MenuScene extends Phaser.Scene {
     this.createBackground();
     this.createTitleArea();
     this.createSkinSelector();
+    this.createUsernamePanel();
     this.createButtons();
     this.createStats();
     this.createLeaderboard();
@@ -158,18 +160,71 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createButtons(): void {
-    this.createActionButton(GAME_WIDTH / 2, 520, "BASLA", () => this.startGame());
-    this.createActionButton(GAME_WIDTH / 2, 616, "RANDOM SKIN", () => {
+    this.createActionButton(GAME_WIDTH / 2, 588, "PLAY", () => this.startGame());
+    this.createActionButton(GAME_WIDTH / 2, 680, "RANDOM SKIN", () => {
       this.pickRandomUnlockedSkin();
     });
   }
 
+  private createUsernamePanel(): void {
+    this.add.image(GAME_WIDTH / 2, 492, "ui-pill").setScale(1.18, 0.9).setDepth(20);
+
+    this.add
+      .text(GAME_WIDTH / 2, 478, "GLOBAL USERNAME", {
+        fontFamily: "Outfit",
+        fontSize: "13px",
+        color: "#cbd5e1",
+        fontStyle: "700",
+        letterSpacing: 1
+      })
+      .setOrigin(0.5)
+      .setDepth(22);
+
+    const editButton = this.add
+      .text(GAME_WIDTH / 2 + 102, 500, "EDIT", {
+        fontFamily: "Outfit",
+        fontSize: "14px",
+        color: "#fde68a",
+        fontStyle: "700",
+        stroke: "#7c2d12",
+        strokeThickness: 3
+      })
+      .setOrigin(0.5)
+      .setDepth(23)
+      .setInteractive({ useHandCursor: true });
+
+    editButton.on("pointerdown", () => {
+      this.editUsername();
+    });
+
+    this.usernameValue = this.add
+      .text(GAME_WIDTH / 2, 502, ScoreService.getUsername(), {
+        fontFamily: "Outfit",
+        fontSize: "22px",
+        color: "#f8fafc",
+        fontStyle: "700"
+      })
+      .setOrigin(0.5)
+      .setDepth(22);
+  }
+
+  private editUsername(): void {
+    const raw = window.prompt("Enter username (3-16, a-z, 0-9, _ or -)", ScoreService.getUsername());
+    if (raw === null) {
+      return;
+    }
+
+    const username = ScoreService.setUsername(raw);
+    this.usernameValue.setText(username);
+    this.showToast(`Username: ${username}`);
+  }
+
   private createStats(): void {
-    this.add.image(136, 722, "ui-pill").setScale(0.95, 0.95).setDepth(20);
-    this.add.image(344, 722, "ui-pill").setScale(0.95, 0.95).setDepth(20);
+    this.add.image(136, 758, "ui-pill").setScale(0.95, 0.9).setDepth(20);
+    this.add.image(344, 758, "ui-pill").setScale(0.95, 0.9).setDepth(20);
 
     this.bestLabel = this.add
-      .text(136, 716, "BEST 0", {
+      .text(136, 752, "BEST 0", {
         fontFamily: "Outfit",
         fontSize: "24px",
         color: "#f8fafc",
@@ -179,7 +234,7 @@ export class MenuScene extends Phaser.Scene {
       .setDepth(22);
 
     this.coinLabel = this.add
-      .text(344, 716, "COINS 0", {
+      .text(344, 752, "COINS 0", {
         fontFamily: "Outfit",
         fontSize: "24px",
         color: "#f8fafc",
@@ -196,19 +251,21 @@ export class MenuScene extends Phaser.Scene {
     const top = this.saveData.localLeaderboard.slice(0, 3);
     const text = top.length > 0 ? top.map((score, idx) => `#${idx + 1} ${score}`).join("   ") : "No records yet";
     this.add
-      .text(GAME_WIDTH / 2, 782, text, {
+      .text(GAME_WIDTH / 2, 790, text, {
         fontFamily: "Outfit",
-        fontSize: "18px",
+        fontSize: "16px",
         color: "#fff8dd"
       })
       .setOrigin(0.5)
       .setDepth(22);
 
     this.globalLeaderboardLabel = this.add
-      .text(GAME_WIDTH / 2, 812, "Global: loading...", {
+      .text(GAME_WIDTH / 2, 824, "GLOBAL TOP\nLoading...", {
         fontFamily: "Outfit",
-        fontSize: "16px",
-        color: "#dbeafe"
+        fontSize: "14px",
+        color: "#dbeafe",
+        align: "center",
+        lineSpacing: 2
       })
       .setOrigin(0.5)
       .setDepth(22);
@@ -219,12 +276,12 @@ export class MenuScene extends Phaser.Scene {
   private async loadGlobalLeaderboard(): Promise<void> {
     const entries = await ScoreService.fetchTop(3);
     if (entries.length === 0) {
-      this.globalLeaderboardLabel.setText("Global: unavailable");
+      this.globalLeaderboardLabel.setText("GLOBAL TOP\nUnavailable");
       return;
     }
 
-    const text = entries.map((item) => `#${item.rank} ${item.player} ${item.score}`).join("   ");
-    this.globalLeaderboardLabel.setText(text);
+    const lines = entries.map((item) => `#${item.rank}  ${item.username}  ${item.score}`);
+    this.globalLeaderboardLabel.setText(["GLOBAL TOP", ...lines].join("\n"));
   }
 
   private createToast(): void {
@@ -281,7 +338,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createActionButton(x: number, y: number, label: string, onClick: () => void): void {
-    const button = this.add.image(x, y, "ui-button").setDepth(24).setInteractive({ useHandCursor: true });
+    const button = this.add.image(x, y, "ui-button").setScale(0.92).setDepth(24).setInteractive({ useHandCursor: true });
     const text = this.add
       .text(x, y, label, {
         fontFamily: "Changa",
@@ -294,12 +351,12 @@ export class MenuScene extends Phaser.Scene {
       .setDepth(25);
 
     button.on("pointerover", () => {
-      button.setScale(1.04);
-      text.setScale(1.04);
+      button.setScale(0.96);
+      text.setScale(1.03);
     });
 
     button.on("pointerout", () => {
-      button.setScale(1);
+      button.setScale(0.92);
       text.setScale(1);
     });
 
@@ -327,6 +384,9 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private startGame(): void {
+    const username = ScoreService.setUsername(ScoreService.getUsername());
+    this.usernameValue.setText(username);
+
     const skin = SKINS[this.selectedSkinIndex];
     if (!this.isSkinUnlocked(skin)) {
       this.showToast(`Need score ${skin.unlockScore} for this skin`);
@@ -335,6 +395,6 @@ export class MenuScene extends Phaser.Scene {
 
     this.saveData.selectedSkin = skin.id;
     SaveManager.save(this.saveData);
-    this.scene.start("PlayScene", { skinId: skin.id });
+    this.scene.start("PlayScene", { skinId: skin.id, username });
   }
 }

@@ -76,6 +76,7 @@ export class PlayScene extends Phaser.Scene {
   private runStartedAtMs = 0;
 
   private scoreSession: ScoreSession | null = null;
+  private username = "pilot";
   private flapEvents: number[] = [];
   private passEvents: number[] = [];
   private coinEvents: number[] = [];
@@ -105,7 +106,7 @@ export class PlayScene extends Phaser.Scene {
     super("PlayScene");
   }
 
-  public create(data: { skinId?: string }): void {
+  public create(data: { skinId?: string; username?: string }): void {
     const loaded = SaveManager.ensureScoreBasedUnlocks(SaveManager.load());
     this.saveData = loaded.updated;
 
@@ -120,6 +121,8 @@ export class PlayScene extends Phaser.Scene {
 
     this.saveData.selectedSkin = this.selectedSkin.id;
     SaveManager.save(this.saveData);
+
+    this.username = ScoreService.setUsername(data?.username ?? ScoreService.getUsername());
 
     this.audioSystem = new AudioSystem(this);
     this.difficultyDirector.reset();
@@ -289,7 +292,7 @@ export class PlayScene extends Phaser.Scene {
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x020617, 0.66)
       .setInteractive();
 
-    const panel = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "ui-panel").setScale(0.83, 0.98);
+    const panel = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "ui-panel").setScale(0.86, 1.24);
 
     this.resultTitle = this.add
       .text(GAME_WIDTH / 2, 280, "RUN COMPLETE", {
@@ -302,7 +305,7 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.resultStats = this.add
-      .text(GAME_WIDTH / 2, 382, "", {
+      .text(GAME_WIDTH / 2, 372, "", {
         fontFamily: "Outfit",
         fontSize: "28px",
         color: "#1f2937",
@@ -312,7 +315,7 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.unlockLabel = this.add
-      .text(GAME_WIDTH / 2, 510, "", {
+      .text(GAME_WIDTH / 2, 498, "", {
         fontFamily: "Outfit",
         fontSize: "20px",
         color: "#9f1239",
@@ -321,11 +324,11 @@ export class PlayScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0);
 
-    const replayButton = this.createOverlayButton(GAME_WIDTH / 2, 602, "PLAY AGAIN", () => {
+    const replayButton = this.createOverlayButton(GAME_WIDTH / 2, 558, "PLAY AGAIN", () => {
       this.scene.restart({ skinId: this.selectedSkin.id });
     });
 
-    const menuButton = this.createOverlayButton(GAME_WIDTH / 2, 692, "MAIN MENU", () => {
+    const menuButton = this.createOverlayButton(GAME_WIDTH / 2, 638, "MAIN MENU", () => {
       this.scene.start("MenuScene");
     });
 
@@ -843,7 +846,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private async openRemoteScoreSession(): Promise<void> {
-    this.scoreSession = await ScoreService.createSession();
+    this.scoreSession = await ScoreService.createSession(this.username);
   }
 
   private async submitRemoteScore(): Promise<void> {
@@ -851,7 +854,7 @@ export class PlayScene extends Phaser.Scene {
       return;
     }
 
-    const result = await ScoreService.submitRun(this.scoreSession, {
+    const result = await ScoreService.submitRun(this.username, this.scoreSession, {
       durationMs: this.getRunElapsedMs(),
       score: this.score,
       coins: this.coinsRun,

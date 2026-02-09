@@ -2,7 +2,7 @@ import {
   createSession,
   extractClientIp,
   rateLimit
-} from "../_lib/scoreSecurity";
+} from "../_lib/scoreSecurity.js";
 
 const readJson = (body: unknown): Record<string, unknown> => {
   if (!body) {
@@ -37,9 +37,9 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const { session, deviceId } = await createSession(json.deviceId);
-    const deviceAllowed = await rateLimit("session_device", deviceId, 30);
-    if (!deviceAllowed) {
+    const { session, username } = await createSession(json.username);
+    const usernameAllowed = await rateLimit("session_username", username, 30);
+    if (!usernameAllowed) {
       res.status(429).json({ error: "rate_limited" });
       return;
     }

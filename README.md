@@ -1,15 +1,15 @@
 # Ultra Flappy Horizon
 
-Web tabanli, Phaser 3 ile gelistirilmis modern Flappy Bird oyunu.
+Modern web-based Flappy Bird game built with Phaser 3.
 
-## Ozellikler
+## Features
 
-- Gelismis parallax sahne ve procedural asset yapisi
-- Dinamik zorluk (pipe varyantlari, hiz ve gap ayari)
+- Advanced parallax scene and procedural asset pipeline
+- Dynamic difficulty (pipe variants, speed, and gap scaling)
 - Local progression (skin unlock, achievement, local best)
-- Vercel API + Redis entegrasyonu ile global leaderboard
+- Global leaderboard with Vercel API + Redis integration
 
-## Lokal Kurulum
+## Local Setup
 
 ```bash
 yarn install
@@ -17,9 +17,9 @@ cp .env.example .env
 yarn dev
 ```
 
-## Ortam Degiskenleri
+## Environment Variables
 
-`.env` dosyasina su degiskeni eklenmelidir:
+Add the following variable to your `.env` file:
 
 ```bash
 SCORE_SIGNING_SECRET=replace-with-a-long-random-secret
@@ -27,14 +27,14 @@ SCORE_SIGNING_SECRET=replace-with-a-long-random-secret
 
 ## Vercel Deploy
 
-1. Projeyi Vercel'e baglayin.
-2. Marketplace uzerinden Redis (Upstash) entegrasyonu ekleyin.
-3. `SCORE_SIGNING_SECRET` env degiskenini tanimlayin.
-4. Deploy alin.
+1. Connect the project to Vercel.
+2. Add Redis (Upstash) integration from the Vercel Marketplace.
+3. Configure the `SCORE_SIGNING_SECRET` environment variable.
+4. Deploy.
 
-Not: Redis entegrasyonu eklendiginde `KV_REST_API_URL` ve `KV_REST_API_TOKEN` degiskenleri Vercel tarafinda otomatik olusur.
+Note: When Redis integration is connected, `KV_REST_API_URL` and `KV_REST_API_TOKEN` are created automatically on Vercel.
 
-## Komutlar
+## Commands
 
 ```bash
 yarn dev
