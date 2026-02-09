@@ -310,11 +310,12 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private async loadGlobalLeaderboard(): Promise<void> {
-    const entries = await ScoreService.fetchTop(2);
+    const entries = await ScoreService.fetchTop(3);
     if (entries.length === 0 && import.meta.env.DEV) {
       const mockEntries = [
         { rank: 1, username: "alpha", score: 42 },
-        { rank: 2, username: "beta", score: 28 }
+        { rank: 2, username: "beta", score: 28 },
+        { rank: 3, username: "nova", score: 19 }
       ];
       const mockText = mockEntries.map((item) => `#${item.rank}  ${this.compactName(item.username)}  ${item.score}`).join("\n");
       this.globalLeaderboardLabel.setText(mockText);
